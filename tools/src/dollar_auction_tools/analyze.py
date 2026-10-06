@@ -27,6 +27,14 @@ def _input_label(run_uids: Iterable[str]) -> str:
     return ";".join(sorted(set(run_uids)))
 
 
+def _read_child_status(child: Path) -> dict[str, object] | None:
+    try:
+        status = json.loads((child / "status.json").read_text())
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return None
+    return status if isinstance(status, dict) else None
+
+
 def sweep_sources(sweep: str | Path) -> tuple[list[Path], list[str]]:
     """Return finished child runs across a newest-to-oldest resume chain."""
     current = Path(sweep).resolve()
@@ -43,11 +51,9 @@ def sweep_sources(sweep: str | Path) -> tuple[list[Path], list[str]]:
         parent_uids.append(uid)
         for raw_child in reversed(sweep_children(current)):
             child = Path(raw_child)
-            status_path = child / "status.json"
-            if status_path.exists():
-                state = json.loads(status_path.read_text()).get("state")
-                if state != "finished":
-                    continue
+            status = _read_child_status(child)
+            if status is None or status.get("state") != "finished":
+                continue
             child_meta = load_run_meta(child)
             identity = str(child_meta.get("config_hash") or child_meta["run_uid"])
             if identity not in seen_configs:
@@ -321,9 +327,9 @@ def _usage(children: list[Path]) -> pd.DataFrame:
         params = config_parameters(child)
         row = {"run_uid": load_run_meta(child)["run_uid"], "model": params.get("model")}
         row.update(run_scope_metrics(child))
-        status_path = child / "status.json"
-        if status_path.exists():
-            row["duration_sec"] = json.loads(status_path.read_text()).get("duration_sec", 0)
+        status = _read_child_status(child)
+        if status is not None:
+            row["duration_sec"] = status.get("duration_sec", 0)
         rows.append(row)
     frame = pd.DataFrame(rows)
     numeric = [

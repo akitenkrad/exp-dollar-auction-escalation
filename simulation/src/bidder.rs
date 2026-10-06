@@ -9,7 +9,8 @@ use socsim_llm::{CallMetadata, LlmClient, TokenUsage};
 use crate::llm::model_config;
 use crate::prompt::{render_system_for, render_user, PromptCondition};
 use crate::protocol::{
-    model_output_is_fenced, parse_model_output_for_framing, raw_action_word, Violation,
+    json_field_was_string, model_output_is_fenced, parse_model_output_for_framing, raw_action_word,
+    Violation,
 };
 use crate::qre::QreTree;
 use crate::seeds::llm_call_seed;
@@ -50,6 +51,10 @@ pub trait Bidder {
     }
 
     fn take_fenced_observed(&mut self) -> bool {
+        false
+    }
+
+    fn take_amount_was_string_observed(&mut self) -> bool {
         false
     }
 
@@ -179,6 +184,7 @@ pub struct Transcript {
     pub metadata: CallMetadata,
     pub think: Option<bool>,
     pub fenced: bool,
+    pub amount_was_string: bool,
     pub raw_action: Option<String>,
     pub reason: Option<String>,
 }
@@ -197,6 +203,7 @@ pub struct LlmBidder {
     contradiction: Option<String>,
     thinking_observed: bool,
     fenced_observed: bool,
+    amount_was_string_observed: bool,
     trial_index: Option<usize>,
 }
 
@@ -228,6 +235,7 @@ impl LlmBidder {
             contradiction: None,
             thinking_observed: false,
             fenced_observed: false,
+            amount_was_string_observed: false,
             trial_index: None,
         }
     }
@@ -276,6 +284,7 @@ impl Bidder for LlmBidder {
         self.thinking_observed = response.thinking.is_some();
         self.fenced_observed = model_output_is_fenced(&response.text);
         let raw_action = raw_action_word(&response.text);
+        self.amount_was_string_observed = json_field_was_string(&response.text, "amount");
         let parsed = parse_model_output_for_framing(&response.text, self.condition.framing);
         let reason = parsed
             .as_ref()
@@ -295,6 +304,7 @@ impl Bidder for LlmBidder {
             metadata: response.metadata,
             think: sent_think,
             fenced: self.fenced_observed,
+            amount_was_string: self.amount_was_string_observed,
             raw_action,
             reason,
         });
@@ -329,5 +339,9 @@ impl Bidder for LlmBidder {
 
     fn take_fenced_observed(&mut self) -> bool {
         std::mem::take(&mut self.fenced_observed)
+    }
+
+    fn take_amount_was_string_observed(&mut self) -> bool {
+        std::mem::take(&mut self.amount_was_string_observed)
     }
 }

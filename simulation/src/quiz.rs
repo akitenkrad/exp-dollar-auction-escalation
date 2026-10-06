@@ -4,7 +4,6 @@ use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
 
 use runvault::{Lineage, Run, RunOptions};
-use serde::Deserialize;
 use serde_json::json;
 use socsim_core::derive_seed;
 
@@ -12,6 +11,7 @@ use crate::bidder::Transcript;
 use crate::llm::{check_model_digest, model_config, TagsFetcher};
 use crate::pilot::{LlmClientFactory, PilotConfig};
 use crate::prompt::Framing;
+use crate::protocol::{json_field_was_string, parse_u32_value};
 use crate::seeds::llm_call_seed;
 use crate::solver::{proposition_first_bid, solve_mixed_ties};
 use crate::usage::UsageSummary;
@@ -27,6 +27,7 @@ pub struct QuizAnswer {
     pub first_bid: u32,
     pub reason: String,
     pub fenced: bool,
+    pub first_bid_was_string: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -35,12 +36,6 @@ pub struct QuizScore {
     pub correct_drop_tie: bool,
     pub correct_mixed_tie: bool,
     pub invalid: bool,
-}
-
-#[derive(Deserialize)]
-struct RawQuizAnswer {
-    first_bid: u32,
-    reason: String,
 }
 
 pub fn render_quiz_prompt(s: u32, b: u32, framing: Framing, paraphrase: u8) -> QuizPrompt {
@@ -88,15 +83,25 @@ pub fn parse_quiz_answer(raw: &str) -> Result<QuizAnswer, String> {
     let fenced_payload = single_fenced_payload(raw);
     let fenced = fenced_payload.is_some();
     let normalized = fenced_payload.unwrap_or_else(|| raw.trim().to_string());
-    let parsed: RawQuizAnswer =
+    let value: serde_json::Value =
         serde_json::from_str(&normalized).map_err(|error| format!("invalid quiz JSON: {error}"))?;
-    if parsed.reason.trim().is_empty() {
+    let object = value
+        .as_object()
+        .ok_or_else(|| "the quiz response must be a JSON object".to_string())?;
+    let (first_bid, first_bid_was_string) =
+        parse_u32_value(object.get("first_bid"), "quiz first_bid must be an integer")?;
+    let reason = object
+        .get("reason")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| "quiz reason must be a string".to_string())?;
+    if reason.trim().is_empty() {
         return Err("quiz reason must not be empty".to_string());
     }
     Ok(QuizAnswer {
-        first_bid: parsed.first_bid,
-        reason: parsed.reason,
+        first_bid,
+        reason: reason.to_string(),
         fenced,
+        first_bid_was_string,
     })
 }
 
@@ -259,6 +264,7 @@ fn run_quiz_cell(
             .complete(&prompt.user, &request)
             .map_err(|error| format!("quiz model call failed: {error}"))?;
         let thinking_observed = response.thinking.is_some();
+        let first_bid_was_string = json_field_was_string(&response.text, "first_bid");
         let parsed = parse_quiz_answer(&response.text);
         let reason = parsed.as_ref().ok().map(|answer| answer.reason.clone());
         let fenced = parsed.as_ref().is_ok_and(|answer| answer.fenced);
@@ -277,6 +283,7 @@ fn run_quiz_cell(
                 "correct_mixed_tie": score.correct_mixed_tie,
                 "invalid": score.invalid,
                 "thinking_observed": thinking_observed,
+                "string_amount_calls": usize::from(first_bid_was_string),
                 "reason": reason,
             }),
         )
@@ -296,6 +303,7 @@ fn run_quiz_cell(
             metadata: response.metadata,
             think: request.think,
             fenced,
+            amount_was_string: first_bid_was_string,
             raw_action: None,
             reason,
         });

@@ -45,6 +45,7 @@ pub struct ParsedResponse {
     pub contradiction: Option<String>,
     pub fenced: bool,
     pub raw_action: String,
+    pub amount_was_string: bool,
 }
 
 pub fn parse_model_output(raw: &str) -> Result<ParsedResponse, String> {
@@ -87,17 +88,17 @@ pub fn parse_model_output_for_framing(
             if reason.is_none() {
                 return Err(format!("{bid_action} action requires a string reason"));
             }
-            let amount = object
-                .get("amount")
-                .and_then(Value::as_u64)
-                .and_then(|n| u32::try_from(n).ok())
-                .ok_or_else(|| format!("{bid_action} action requires an integer amount"))?;
+            let (amount, amount_was_string) = parse_u32_value(
+                object.get("amount"),
+                &format!("{bid_action} action requires an integer amount"),
+            )?;
             Ok(ParsedResponse {
                 response: Response::Bid(amount),
                 reason,
                 contradiction: None,
                 fenced,
                 raw_action: action.to_string(),
+                amount_was_string,
             })
         }
         action if action == drop_action => {
@@ -112,6 +113,7 @@ pub fn parse_model_output_for_framing(
                     .then(|| format!("{drop_action} action included an amount")),
                 fenced,
                 raw_action: action.to_string(),
+                amount_was_string: false,
             })
         }
         "calc" => {
@@ -127,12 +129,35 @@ pub fn parse_model_output_for_framing(
                     .then(|| "calc action included an amount".to_string()),
                 fenced,
                 raw_action: action.to_string(),
+                amount_was_string: false,
             })
         }
         _ => Err(format!(
             "action must be {bid_action}, {drop_action}, or calc"
         )),
     }
+}
+
+pub(crate) fn parse_u32_value(
+    value: Option<&Value>,
+    error_message: &str,
+) -> Result<(u32, bool), String> {
+    let value = value.ok_or_else(|| error_message.to_string())?;
+    if let Some(number) = value.as_u64() {
+        return u32::try_from(number)
+            .map(|number| (number, false))
+            .map_err(|_| error_message.to_string());
+    }
+    if let Some(text) = value.as_str() {
+        let trimmed = text.trim();
+        if !trimmed.is_empty() && trimmed.bytes().all(|byte| byte.is_ascii_digit()) {
+            return trimmed
+                .parse::<u32>()
+                .map(|number| (number, true))
+                .map_err(|_| error_message.to_string());
+        }
+    }
+    Err(error_message.to_string())
 }
 
 pub fn raw_action_word(raw: &str) -> Option<String> {
@@ -151,6 +176,14 @@ pub fn raw_action_word(raw: &str) -> Option<String> {
 
 pub fn model_output_is_fenced(raw: &str) -> bool {
     single_fenced_payload(raw).is_some()
+}
+
+pub(crate) fn json_field_was_string(raw: &str, field: &str) -> bool {
+    let normalized = single_fenced_payload(raw).unwrap_or_else(|| raw.trim().to_string());
+    serde_json::from_str::<Value>(&normalized)
+        .ok()
+        .and_then(|value| value.as_object()?.get(field).cloned())
+        .is_some_and(|value| value.is_string())
 }
 
 fn single_fenced_payload(raw: &str) -> Option<String> {

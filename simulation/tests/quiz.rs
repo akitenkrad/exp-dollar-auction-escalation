@@ -6,10 +6,15 @@ fn quiz_accepts_plain_and_fenced_answers_and_scores_both_anchors() {
     let plain = parse_quiz_answer(r#"{"first_bid":52,"reason":"calculated"}"#).unwrap();
     assert_eq!(plain.first_bid, 52);
     assert!(!plain.fenced);
+    assert!(!plain.first_bid_was_string);
     let fenced =
         parse_quiz_answer("```JSON\n{\"first_bid\":50,\"reason\":\"tie-aware\"}\n```").unwrap();
     assert_eq!(fenced.first_bid, 50);
     assert!(fenced.fenced);
+
+    let string_bid = parse_quiz_answer(r#"{"first_bid":"50","reason":"tie-aware"}"#).unwrap();
+    assert_eq!(string_bid.first_bid, 50);
+    assert!(string_bid.first_bid_was_string);
 
     let exact = score_quiz_answer(100, 250, Ok(plain));
     assert!(exact.correct_drop_tie);

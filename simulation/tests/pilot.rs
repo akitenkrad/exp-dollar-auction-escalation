@@ -248,6 +248,82 @@ fn resume_skips_only_finished_matching_cells_and_restarts_failed_at_zero() {
 }
 
 #[test]
+fn resume_ignores_children_with_missing_or_malformed_status_and_reruns_them() {
+    let root = temp_dir("resume_unfinished");
+    let mut config = PilotConfig::from_path(
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../pilot.smoke.toml"),
+    )
+    .unwrap();
+    config.trials = 2;
+    let mut third_cell = config.cells[0].clone();
+    third_cell.opponent = "same_model".to_string();
+    config.cells.push(third_cell);
+
+    let initial_calls = Arc::new(AtomicUsize::new(0));
+    let initial = run_pilot(
+        &config,
+        &root,
+        true,
+        None,
+        &OkTags,
+        &ScriptedFactory {
+            calls: Arc::clone(&initial_calls),
+        },
+    )
+    .unwrap();
+    assert_eq!(initial.child_dirs.len(), 3);
+    assert_eq!(initial_calls.load(Ordering::SeqCst), 6);
+    let parent_status_path = initial.parent_dir.join("status.json");
+    let mut parent_status: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&parent_status_path).unwrap()).unwrap();
+    parent_status["state"] = serde_json::json!("failed");
+    parent_status["exit_code"] = serde_json::Value::Null;
+    parent_status["error"] =
+        serde_json::json!({"kind": "test_interrupt", "message": "simulated interruption"});
+    fs::write(
+        parent_status_path,
+        serde_json::to_vec_pretty(&parent_status).unwrap(),
+    )
+    .unwrap();
+
+    let missing_status = initial.child_dirs[1].clone();
+    let malformed_status = initial.child_dirs[2].clone();
+    fs::remove_file(missing_status.join("status.json")).unwrap();
+    fs::write(malformed_status.join("status.json"), "not json\n").unwrap();
+
+    let resumed_calls = Arc::new(AtomicUsize::new(0));
+    let resumed = run_pilot(
+        &config,
+        &root,
+        true,
+        Some(&initial.parent_dir),
+        &OkTags,
+        &ScriptedFactory {
+            calls: Arc::clone(&resumed_calls),
+        },
+    )
+    .unwrap();
+
+    assert_eq!(resumed.skipped_cells, 1);
+    assert_eq!(resumed.child_dirs.len(), 2);
+    assert_eq!(resumed_calls.load(Ordering::SeqCst), 4);
+    for child in &resumed.child_dirs {
+        let events = fs::read_to_string(child.join("events.jsonl")).unwrap();
+        let trial_ids: Vec<_> = events
+            .lines()
+            .filter_map(|line| {
+                let event: serde_json::Value = serde_json::from_str(line).unwrap();
+                (event["schema"] == "terminal").then(|| event["trial"].as_u64().unwrap())
+            })
+            .collect();
+        assert_eq!(trial_ids, [0, 1]);
+    }
+    let progress = fs::read_to_string(resumed.parent_dir.join("logs/progress.log")).unwrap();
+    assert!(progress.contains(missing_status.file_name().unwrap().to_str().unwrap()));
+    assert!(progress.contains(malformed_status.file_name().unwrap().to_str().unwrap()));
+}
+
+#[test]
 fn scripted_smoke_pilot_writes_parent_children_metrics_and_linkage() {
     let root = temp_dir("pilot");
     let config = PilotConfig::from_path(

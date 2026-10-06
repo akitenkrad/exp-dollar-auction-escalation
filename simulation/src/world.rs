@@ -85,6 +85,7 @@ pub struct AuctionWorld {
     pub paraphrase_id: u8,
     pub thinking_calls: u64,
     pub fenced_calls: u64,
+    pub string_amount_calls: u64,
     pub max_bids: Option<u32>,
 }
 
@@ -104,6 +105,7 @@ impl AuctionWorld {
             paraphrase_id: 0,
             thinking_calls: 0,
             fenced_calls: 0,
+            string_amount_calls: 0,
             max_bids: None,
         }
     }

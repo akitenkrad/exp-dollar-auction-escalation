@@ -117,6 +117,7 @@ class AnalyzeTests(unittest.TestCase):
                 f"{uid},,,run,n_calls,8\n"
                 f"{uid},,,run,n_calls_missing_prompt_tokens,1\n"
             )
+            (child / "status.json").write_text(json.dumps({"state": "finished"}))
             self.children.append(child)
 
     def tearDown(self):
@@ -202,6 +203,53 @@ class AnalyzeTests(unittest.TestCase):
         self.assertEqual(len(children), 4)
         self.assertIn(replacement.resolve(), children)
         self.assertNotIn(self.children[1].resolve(), children)
+
+    def test_sweep_sources_ignores_children_with_missing_or_malformed_status(self):
+        missing = self.root / "missing_status_child"
+        missing.mkdir()
+        (missing / "run.json").write_text(
+            json.dumps(
+                {
+                    "run_uid": "MISSING-STATUS",
+                    "config_hash": "MISSING-HASH",
+                    "lineage": {"parent_run_uid": "PARENT-UID"},
+                }
+            )
+        )
+
+        malformed = self.root / "malformed_status_child"
+        malformed.mkdir()
+        (malformed / "run.json").write_text(
+            json.dumps(
+                {
+                    "run_uid": "MALFORMED-STATUS",
+                    "config_hash": "MALFORMED-HASH",
+                    "lineage": {"parent_run_uid": "PARENT-UID"},
+                }
+            )
+        )
+        (malformed / "status.json").write_text("not json\n")
+
+        unreadable = self.root / "unreadable_status_child"
+        unreadable.mkdir()
+        (unreadable / "run.json").write_text(
+            json.dumps(
+                {
+                    "run_uid": "UNREADABLE-STATUS",
+                    "config_hash": "UNREADABLE-HASH",
+                    "lineage": {"parent_run_uid": "PARENT-UID"},
+                }
+            )
+        )
+        (unreadable / "status.json").write_bytes(b"\xff")
+
+        children, parents = sweep_sources(self.parent)
+
+        self.assertEqual(parents, ["PARENT-UID"])
+        self.assertEqual(set(children), {child.resolve() for child in self.children})
+        self.assertNotIn(missing.resolve(), children)
+        self.assertNotIn(malformed.resolve(), children)
+        self.assertNotIn(unreadable.resolve(), children)
 
 
 if __name__ == "__main__":

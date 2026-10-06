@@ -268,7 +268,7 @@ pub fn run_pilot(
         let digest = check_model_digest(tags, &host, model)?;
         verified_digests.insert(model.tag.clone(), digest);
     }
-    let existing = resume
+    let (existing, resume_warnings) = resume
         .map(read_existing_children)
         .transpose()?
         .unwrap_or_default();
@@ -312,6 +312,9 @@ pub fn run_pilot(
         .sweep_id()
         .ok_or_else(|| "pilot parent has no sweep id".to_string())?
         .to_string();
+    for warning in resume_warnings {
+        write_progress(&parent_dir, &warning)?;
+    }
     let total_trials = cells.len() * config.trials;
     let started = Instant::now();
     let mut progress = ProgressState::new(total_trials);
@@ -729,7 +732,7 @@ fn write_progress(parent_dir: &Path, line: &str) -> Result<(), String> {
     file.flush().map_err(|error| error.to_string())
 }
 
-fn read_existing_children(parent: &Path) -> Result<Vec<ExistingChild>, String> {
+fn read_existing_children(parent: &Path) -> Result<(Vec<ExistingChild>, Vec<String>), String> {
     let parent_meta = read_json(parent.join("run.json"))?;
     let parent_uid = parent_meta
         .get("run_uid")
@@ -739,6 +742,7 @@ fn read_existing_children(parent: &Path) -> Result<Vec<ExistingChild>, String> {
         .parent()
         .ok_or_else(|| "resume parent has no experiment directory".to_string())?;
     let mut children = Vec::new();
+    let mut warnings = Vec::new();
     for entry in fs::read_dir(experiment_dir).map_err(|error| error.to_string())? {
         let path = entry.map_err(|error| error.to_string())?.path();
         if !path.is_dir() || !path.join("run.json").exists() {
@@ -755,14 +759,34 @@ fn read_existing_children(parent: &Path) -> Result<Vec<ExistingChild>, String> {
         let Some(config_hash) = meta.get("config_hash").and_then(Value::as_str) else {
             continue;
         };
-        let status = read_json(path.join("status.json"))?;
+        let status_path = path.join("status.json");
+        let status_text = match fs::read_to_string(&status_path) {
+            Ok(text) => text,
+            Err(error) => {
+                warnings.push(format!(
+                    "resume: child {} has unreadable status.json ({error}); treating it as unfinished",
+                    path.display()
+                ));
+                continue;
+            }
+        };
+        let status: Value = match serde_json::from_str(&status_text) {
+            Ok(status) => status,
+            Err(error) => {
+                warnings.push(format!(
+                    "resume: child {} has malformed status.json ({error}); treating it as unfinished",
+                    path.display()
+                ));
+                continue;
+            }
+        };
         let state = status
             .get("state")
             .and_then(Value::as_str)
             .unwrap_or("failed");
         children.push(ExistingChild::new(config_hash, state, Vec::new()));
     }
-    Ok(children)
+    Ok((children, warnings))
 }
 
 fn cell_parameters(config: &PilotConfig, cell: &PlannedCell, model_digest: &str) -> Value {

@@ -5,6 +5,7 @@ use dollar_auction_simulation::protocol::{
     parse_model_output, parse_model_output_for_framing, ProtocolDecision, ProtocolTurn,
     ViolationKind,
 };
+use dollar_auction_simulation::quiz::parse_quiz_answer;
 
 #[test]
 fn parser_accepts_valid_json_and_rejects_missing_fields() {
@@ -12,9 +13,53 @@ fn parser_accepts_valid_json_and_rejects_missing_fields() {
     assert_eq!(bid.response, Response::Bid(12));
     assert_eq!(bid.reason.as_deref(), Some("test"));
     assert!(!bid.fenced);
+    assert!(!bid.amount_was_string);
     assert!(parse_model_output("not json").is_err());
     assert!(parse_model_output(r#"{"action":"bid","reason":"missing"}"#).is_err());
     assert!(parse_model_output(r#"{"action":"drop"}"#).is_err());
+}
+
+#[test]
+fn parser_accepts_trimmed_decimal_integer_strings_in_both_framings() {
+    for (framing, action) in [(Framing::Named, "bid"), (Framing::Disguised, "invest")] {
+        let raw = format!(r#"{{"action":"{action}","amount":" 003 ","reason":"go"}}"#);
+        let parsed = parse_model_output_for_framing(&raw, framing).unwrap();
+        assert_eq!(parsed.response, Response::Bid(3));
+        assert!(parsed.amount_was_string);
+    }
+
+    let parsed = parse_model_output(r#"{"action":"bid","amount":"21","reason":"go"}"#).unwrap();
+    let mut turn = ProtocolTurn::new(11, 20);
+    assert!(matches!(
+        turn.evaluate(parsed.response, "string amount"),
+        ProtocolDecision::Retry(violation) if violation.kind == ViolationKind::Range
+    ));
+}
+
+#[test]
+fn parser_rejects_non_decimal_integer_strings_and_integral_json_floats() {
+    for amount in [
+        r#""3.0""#,
+        r#""$3""#,
+        r#""three""#,
+        r#"" 3 dollars""#,
+        r#"""#,
+        r#""-3""#,
+        r#""+3""#,
+        r#""4294967296""#,
+    ] {
+        let raw = format!(r#"{{"action":"bid","amount":{amount},"reason":"go"}}"#);
+        assert!(parse_model_output(&raw).is_err(), "accepted {amount}");
+    }
+    assert!(parse_model_output(r#"{"action":"bid","amount":3.0,"reason":"go"}"#).is_err());
+}
+
+#[test]
+fn quiz_accepts_a_decimal_integer_string_and_records_its_type() {
+    let answer = parse_quiz_answer(r#"{"first_bid":" 052 ","reason":"calculated"}"#).unwrap();
+    assert_eq!(answer.first_bid, 52);
+    assert!(answer.first_bid_was_string);
+    assert!(parse_quiz_answer(r#"{"first_bid":"3.0","reason":"calculated"}"#).is_err());
 }
 
 #[test]
@@ -26,6 +71,14 @@ fn parser_accepts_exactly_one_markdown_fence() {
         assert_eq!(parsed.response, Response::Drop);
         assert!(parsed.fenced);
     }
+}
+
+#[test]
+fn parser_accepts_single_fence_with_crlf_and_surrounding_whitespace() {
+    let raw = " \r\n```JSON\r\n{\"action\":\"drop\",\"reason\":\"done\"}\r\n```\r\n ";
+    let parsed = parse_model_output(raw).unwrap();
+    assert_eq!(parsed.response, Response::Drop);
+    assert!(parsed.fenced);
 }
 
 #[test]

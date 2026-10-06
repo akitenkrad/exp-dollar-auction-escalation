@@ -2,6 +2,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 
 use dollar_auction_simulation::bidder::{LlmBidder, SolverBidder};
 use dollar_auction_simulation::prompt::PromptCondition;
@@ -238,4 +239,66 @@ fn fenced_calls_and_think_setting_are_recorded() {
     .unwrap();
     assert_eq!(transcript["fenced"], true);
     assert_eq!(transcript["think"], false);
+}
+
+#[test]
+fn string_amount_calls_are_recorded_per_call_and_trial() {
+    let root = temp_dir("string_amount");
+    let transcripts = empty_transcript_sink();
+    let calls = Arc::new(AtomicUsize::new(0));
+    let client = ScriptedClient::new("scripted", {
+        let calls = Arc::clone(&calls);
+        move |_| {
+            if calls.fetch_add(1, Ordering::Relaxed) == 0 {
+                r#"{"action":"bid","amount":"$3","reason":"go"}"#.to_string()
+            } else {
+                r#"{"action":"bid","amount":"3","reason":"go"}"#.to_string()
+            }
+        }
+    });
+    let p1 = Box::new(LlmBidder::with_sink(
+        Box::new(client),
+        PromptCondition::default(),
+        7,
+        transcripts.clone(),
+    ));
+    let config = RecordConfig {
+        s: 10,
+        b: 12,
+        p1: "scripted:test-double".to_string(),
+        p2: "solver".to_string(),
+        framing: "named".to_string(),
+        opponent: "rational_ai".to_string(),
+        paraphrase: 0,
+        calculator: false,
+        display_paid_so_far: false,
+        root_seed: 42,
+        trial_seed: 7,
+        max_bids: None,
+    };
+    let (run, _) = record_play(
+        &config,
+        p1,
+        Box::new(SolverBidder::new()),
+        transcripts,
+        &root,
+        true,
+    )
+    .unwrap();
+
+    let rows = events(&run);
+    let trial = rows
+        .iter()
+        .find(|event| event["schema"] == "x.dollar-auction-escalation.trial")
+        .unwrap();
+    assert_eq!(trial["string_amount_calls"], 2);
+    let transcript_text = fs::read_to_string(run.join("artifacts/transcripts.jsonl")).unwrap();
+    let transcript_rows: Vec<serde_json::Value> = transcript_text
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(transcript_rows.len(), 2);
+    assert!(transcript_rows
+        .iter()
+        .all(|transcript| transcript["amount_was_string"] == true));
 }

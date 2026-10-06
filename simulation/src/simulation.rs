@@ -109,6 +109,9 @@ impl Mechanism<AuctionWorld> for TakeTurn {
             if bidder.take_fenced_observed() {
                 ctx.world.fenced_calls += 1;
             }
+            if bidder.take_amount_was_string_observed() {
+                ctx.world.string_amount_calls += 1;
+            }
             if let Some(error) = bidder.take_fatal_error() {
                 return Err(SocsimError::Mechanism(format!(
                     "LLM backend failed: {error}"
@@ -257,6 +260,7 @@ impl Mechanism<AuctionWorld> for Settle {
                 "paraphrase_id": ctx.world.paraphrase_id,
                 "thinking_calls": ctx.world.thinking_calls,
                 "fenced_calls": ctx.world.fenced_calls,
+                "string_amount_calls": ctx.world.string_amount_calls,
                 "turn_capped": turn_capped,
                 "waste_is_lower_bound": turn_capped,
                 "max_bids": ctx.world.max_bids,
