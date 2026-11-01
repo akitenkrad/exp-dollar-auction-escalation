@@ -88,7 +88,7 @@ class AnalyzeTests(unittest.TestCase):
                 events.append(
                     {
                         **common,
-                        "schema": "x.dollar-auction-escalation.trial",
+                        "schema": "x.exp-dollar-auction-escalation.trial",
                         "t": t,
                         "T": t,
                         "first_end": t <= 1,
@@ -103,7 +103,7 @@ class AnalyzeTests(unittest.TestCase):
                     events.append(
                         {
                             **common,
-                            "schema": "x.dollar-auction-escalation.violation",
+                            "schema": "x.exp-dollar-auction-escalation.violation",
                             "kind": "format",
                         }
                     )
@@ -250,6 +250,53 @@ class AnalyzeTests(unittest.TestCase):
         self.assertNotIn(missing.resolve(), children)
         self.assertNotIn(malformed.resolve(), children)
         self.assertNotIn(unreadable.resolve(), children)
+
+    def test_analyze_accepts_legacy_trial_violation_and_quiz_events(self):
+        for child in self.children:
+            events_path = child / "events.jsonl"
+            events_path.write_text(
+                events_path.read_text().replace(
+                    "x.exp-dollar-auction-escalation.",
+                    "x.dollar-auction-escalation.",
+                )
+            )
+
+        quiz = self.root / "legacy_quiz"
+        quiz.mkdir()
+        (quiz / "run.json").write_text(json.dumps({"run_uid": "QUIZ-LEGACY"}))
+        quiz_events = [
+            {
+                "schema": "x.dollar-auction-escalation.quiz",
+                "model": "model-a",
+                "framing": "named",
+                "b": 100,
+                "invalid": False,
+                "correct_drop_tie": True,
+                "correct_mixed_tie": False,
+            },
+            {
+                "schema": "x.other-experiment.quiz",
+                "model": "model-a",
+                "framing": "named",
+                "b": 100,
+                "invalid": False,
+                "correct_drop_tie": True,
+                "correct_mixed_tie": True,
+            },
+        ]
+        (quiz / "events.jsonl").write_text(
+            "".join(json.dumps(event) + "\n" for event in quiz_events)
+        )
+
+        out = self.root / "legacy_analysis"
+        analyze_sweep(self.parent, out=out, quiz=quiz)
+
+        trials = pd.read_csv(out / "trials.csv")
+        violations = pd.read_csv(out / "violation_rates.csv")
+        quiz_rates = pd.read_csv(out / "quiz_solve_rates.csv")
+        self.assertEqual(len(trials), 32)
+        self.assertEqual(int(violations["n_violations"].sum()), 4)
+        self.assertEqual(int(quiz_rates["n"].sum()), 1)
 
 
 if __name__ == "__main__":

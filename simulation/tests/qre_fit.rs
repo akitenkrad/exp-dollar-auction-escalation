@@ -38,10 +38,10 @@ fn fit_recovers_known_lambda_inside_profile_interval_and_counts_exclusions() {
 #[test]
 fn event_extraction_keeps_valid_decisions_and_counts_invalid_surfaces() {
     let events = [
-        serde_json::json!({"schema":"x.dollar-auction-escalation.decision","me":0,"opp":0,"action":"bid","amount":3}),
-        serde_json::json!({"schema":"x.dollar-auction-escalation.decision","me":0,"opp":3,"action":"drop"}),
-        serde_json::json!({"schema":"x.dollar-auction-escalation.decision","me":3,"opp":4,"action":"drop","is_llm":false}),
-        serde_json::json!({"schema":"x.dollar-auction-escalation.violation"}),
+        serde_json::json!({"schema":"x.exp-dollar-auction-escalation.decision","me":0,"opp":0,"action":"bid","amount":3}),
+        serde_json::json!({"schema":"x.exp-dollar-auction-escalation.decision","me":0,"opp":3,"action":"drop"}),
+        serde_json::json!({"schema":"x.exp-dollar-auction-escalation.decision","me":3,"opp":4,"action":"drop","is_llm":false}),
+        serde_json::json!({"schema":"x.exp-dollar-auction-escalation.violation"}),
         serde_json::json!({"schema":"terminal","outcome":"invalid"}),
     ];
     let observations = observations_from_events(&events);
@@ -50,4 +50,19 @@ fn event_extraction_keeps_valid_decisions_and_counts_invalid_surfaces() {
     assert!(matches!(observations[1], FitObservation::Valid(_)));
     assert_eq!(observations[2], FitObservation::Violation);
     assert_eq!(observations[3], FitObservation::Invalid);
+}
+
+#[test]
+fn event_extraction_accepts_legacy_event_namespace() {
+    let events = [
+        serde_json::json!({"schema":"x.dollar-auction-escalation.decision","me":0,"opp":0,"action":"bid","amount":3}),
+        serde_json::json!({"schema":"x.dollar-auction-escalation.violation"}),
+        serde_json::json!({"schema":"x.other-experiment.decision","me":0,"opp":0,"action":"drop"}),
+    ];
+
+    let observations = observations_from_events(&events);
+
+    assert_eq!(observations.len(), 2);
+    assert!(matches!(observations[0], FitObservation::Valid(_)));
+    assert_eq!(observations[1], FitObservation::Violation);
 }

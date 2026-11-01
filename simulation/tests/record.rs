@@ -87,7 +87,7 @@ fn scripted_escalation_stops_at_the_configured_turn_cap() {
     assert_eq!(
         rows.iter()
             .filter(|event| {
-                event["schema"] == "x.dollar-auction-escalation.decision"
+                event["schema"] == "x.exp-dollar-auction-escalation.decision"
                     && event["action"] == "bid"
             })
             .count(),
@@ -96,7 +96,7 @@ fn scripted_escalation_stops_at_the_configured_turn_cap() {
 
     let trial = rows
         .iter()
-        .find(|event| event["schema"] == "x.dollar-auction-escalation.trial")
+        .find(|event| event["schema"] == "x.exp-dollar-auction-escalation.trial")
         .unwrap();
     assert_eq!(trial["T"], 50);
     assert_eq!(trial["turn_capped"], true);
@@ -137,10 +137,10 @@ fn scripted_scratch_run_records_terminal_trial_violation_and_transcript() {
     assert!(terminal["turn"].is_number());
     assert!(rows
         .iter()
-        .any(|e| e["schema"] == "x.dollar-auction-escalation.violation"));
+        .any(|e| e["schema"] == "x.exp-dollar-auction-escalation.violation"));
     assert!(rows
         .iter()
-        .any(|e| e["schema"] == "x.dollar-auction-escalation.trial"));
+        .any(|e| e["schema"] == "x.exp-dollar-auction-escalation.trial"));
 
     let metrics = fs::read_to_string(run.join("metrics.csv")).unwrap();
     assert!(metrics.contains("n_trials"));
@@ -228,7 +228,7 @@ fn fenced_calls_and_think_setting_are_recorded() {
     let rows = events(&run);
     let trial = rows
         .iter()
-        .find(|event| event["schema"] == "x.dollar-auction-escalation.trial")
+        .find(|event| event["schema"] == "x.exp-dollar-auction-escalation.trial")
         .unwrap();
     assert_eq!(trial["fenced_calls"], 1);
     let transcript: serde_json::Value = serde_json::from_str(
@@ -289,7 +289,7 @@ fn string_amount_calls_are_recorded_per_call_and_trial() {
     let rows = events(&run);
     let trial = rows
         .iter()
-        .find(|event| event["schema"] == "x.dollar-auction-escalation.trial")
+        .find(|event| event["schema"] == "x.exp-dollar-auction-escalation.trial")
         .unwrap();
     assert_eq!(trial["string_amount_calls"], 2);
     let transcript_text = fs::read_to_string(run.join("artifacts/transcripts.jsonl")).unwrap();

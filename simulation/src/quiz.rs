@@ -158,7 +158,7 @@ pub fn run_quiz(
     let parent = Run::start(
         RunOptions::new("dollar-auction", "quiz")
             .scratch(scratch)
-            .repo_id("dollar-auction-escalation")
+            .repo_id("exp-dollar-auction-escalation")
             .domain("analysis")
             .results_root(results_root)
             .parameters(&parameters)
@@ -237,7 +237,7 @@ fn run_quiz_cell(
     let mut run = Run::start(
         RunOptions::new("dollar-auction", "quiz-cell")
             .scratch(scratch)
-            .repo_id("dollar-auction-escalation")
+            .repo_id("exp-dollar-auction-escalation")
             .domain("analysis")
             .results_root(results_root)
             .parameters(&parameters)
@@ -270,7 +270,7 @@ fn run_quiz_cell(
         let fenced = parsed.as_ref().is_ok_and(|answer| answer.fenced);
         let score = score_quiz_answer(config.s, b, parsed);
         run.log_event(
-            "x.dollar-auction-escalation.quiz",
+            &format!("x.{}.quiz", crate::EVENT_NAMESPACE),
             &json!({
                 "unit_id": format!("quiz-{trial}"),
                 "trial": trial,

@@ -55,7 +55,7 @@ pub fn record_play(
     });
     let run = Run::start(
         RunOptions::new("dollar-auction", "play")
-            .repo_id("dollar-auction-escalation")
+            .repo_id("exp-dollar-auction-escalation")
             .domain("simulation")
             .results_root(results_root)
             .scratch(true)

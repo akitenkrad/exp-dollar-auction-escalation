@@ -289,7 +289,7 @@ pub fn run_pilot(
     });
     let mut parent_options = RunOptions::new("dollar-auction", "pilot")
         .scratch(scratch)
-        .repo_id("dollar-auction-escalation")
+        .repo_id("exp-dollar-auction-escalation")
         .domain("simulation")
         .results_root(results_root)
         .parameters(&parent_parameters)
@@ -411,7 +411,7 @@ fn run_cell(
     let mut run = Run::start(
         RunOptions::new("dollar-auction", "pilot-cell")
             .scratch(scratch)
-            .repo_id("dollar-auction-escalation")
+            .repo_id("exp-dollar-auction-escalation")
             .domain("simulation")
             .results_root(results_root)
             .parameters(&parameters)
@@ -700,7 +700,7 @@ fn write_captured_event(
     {
         event.kind
     } else {
-        format!("x.dollar-auction-escalation.{}", event.kind)
+        format!("x.{}.{}", crate::EVENT_NAMESPACE, event.kind)
     };
     run.log_event(&kind, &Value::Object(payload))
         .map_err(|error| error.to_string())

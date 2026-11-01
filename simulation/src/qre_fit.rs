@@ -1,4 +1,5 @@
 use crate::bidder::Response;
+use crate::is_experiment_event;
 use crate::qre::{ObservedAction, QreTree};
 use runvault::{Lineage, Run, RunOptions};
 use serde_json::{json, Value};
@@ -91,7 +92,7 @@ pub fn observations_from_events(events: &[serde_json::Value]) -> Vec<FitObservat
         .iter()
         .filter_map(
             |event| match event.get("schema").and_then(serde_json::Value::as_str) {
-                Some("x.dollar-auction-escalation.decision") => {
+                Some(schema) if is_experiment_event(schema, "decision") => {
                     if event.get("is_llm").and_then(serde_json::Value::as_bool) == Some(false) {
                         return None;
                     }
@@ -115,7 +116,9 @@ pub fn observations_from_events(events: &[serde_json::Value]) -> Vec<FitObservat
                     };
                     Some(FitObservation::Valid(ObservedAction::new(me, opp, action)))
                 }
-                Some("x.dollar-auction-escalation.violation") => Some(FitObservation::Violation),
+                Some(schema) if is_experiment_event(schema, "violation") => {
+                    Some(FitObservation::Violation)
+                }
                 Some("terminal")
                     if event.get("outcome").and_then(serde_json::Value::as_str)
                         == Some("invalid") =>
@@ -229,7 +232,7 @@ pub fn run_qre_fit(input: &Path, results_root: &Path, scratch: bool) -> Result<P
     let run = Run::start(
         RunOptions::new("dollar-auction", "fit-qre")
             .scratch(scratch)
-            .repo_id("dollar-auction-escalation")
+            .repo_id("exp-dollar-auction-escalation")
             .domain("analysis")
             .results_root(results_root)
             .parameters(&parameters)

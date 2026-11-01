@@ -22,6 +22,16 @@ from runvault.read import (
     sweep_children,
 )
 
+EVENT_NAMESPACE = "exp-dollar-auction-escalation"
+LEGACY_EVENT_NAMESPACE = "dollar-auction-escalation"
+
+
+def _event_schemas(kind: str) -> set[str]:
+    return {
+        f"x.{EVENT_NAMESPACE}.{kind}",
+        f"x.{LEGACY_EVENT_NAMESPACE}.{kind}",
+    }
+
 
 def _input_label(run_uids: Iterable[str]) -> str:
     return ";".join(sorted(set(run_uids)))
@@ -104,9 +114,8 @@ def _child_trials(child: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
     params = config_parameters(child)
     all_events = events_table(child, kind=None)
     terminal = all_events[all_events["schema"] == "terminal"].copy().dropna(axis=1, how="all")
-    trial = all_events[
-        all_events["schema"] == "x.dollar-auction-escalation.trial"
-    ].copy().dropna(axis=1, how="all")
+    trial = all_events[all_events["schema"].isin(_event_schemas("trial"))]
+    trial = trial.copy().dropna(axis=1, how="all")
     key = ["unit_id"]
     keep = [c for c in trial.columns if c not in terminal.columns or c in key]
     merged = terminal.merge(trial[keep], on=key, how="left", suffixes=("", "_trial"))
@@ -131,7 +140,7 @@ def _child_trials(child: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
     if "waste_is_lower_bound" not in merged:
         merged["waste_is_lower_bound"] = merged["turn_capped"]
     violations = all_events[
-        all_events["schema"] == "x.dollar-auction-escalation.violation"
+        all_events["schema"].isin(_event_schemas("violation"))
     ].copy()
     if not violations.empty:
         violations["run_uid"] = meta["run_uid"]
@@ -353,10 +362,12 @@ def _quiz_table(quiz_run: Path | None) -> pd.DataFrame:
     rows = []
     for child in children:
         try:
-            events = events_table(child, kind="x.dollar-auction-escalation.quiz")
+            all_events = events_table(child, kind=None)
         except (FileNotFoundError, SystemExit):
             continue
-        rows.append(events)
+        events = all_events[all_events["schema"].isin(_event_schemas("quiz"))]
+        if not events.empty:
+            rows.append(events)
     if not rows:
         return pd.DataFrame()
     data = pd.concat(rows, ignore_index=True)

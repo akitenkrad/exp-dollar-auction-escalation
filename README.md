@@ -90,6 +90,8 @@ Generate the cross-language vectors with:
 ```
 
 Recorded trials are stored under the runvault scratch tree. Per-trial observations and outcomes are in `events.jsonl`, cell aggregates are in `metrics.csv`, and complete scripted model calls are in `artifacts/transcripts.jsonl`.
+New runs use the `x.exp-dollar-auction-escalation.*` event namespace; historical runs remain recorded under `x.dollar-auction-escalation.*` and are supported when reading.
+新しい run はイベント名前空間 `x.exp-dollar-auction-escalation.*` を使用します．過去の run は `x.dollar-auction-escalation.*` のまま保持され，読み込み時には引き続きサポートされます．
 Every model request explicitly sets `think` to `false`. A model response may contain either plain JSON or exactly one enclosing three-backtick Markdown fence, optionally tagged `json`; transcript records preserve whether the accepted envelope was fenced.
 Bid and investment amounts, including quiz `first_bid` values, may be JSON integers or decimal-digit strings. Calls using a string-valued amount are marked in transcripts and counted in the per-trial event.
 
